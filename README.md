@@ -1,8 +1,8 @@
-# Super Duper Resolution with CNN
+## Super Duper Resolution with CNN
 
 This is a PyTorch implementation of the paper "Image Super-Resolution Using Deep Convolutional Networks" by Chao Dong, Chen Change Loy, Kaiming He, Xiaoou Tang.
 
-### Usage
+### Usage
 ```python
 from sdr_model import Trainer, SuperDuperResolution, MSELoss, optim
 
