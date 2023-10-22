@@ -4,6 +4,7 @@ This file contains the trainer class for the model.
 from math import log10
 from os import listdir
 from os.path import join
+import logging
 
 from torch import nn, save
 from torch.autograd import Variable
@@ -12,6 +13,9 @@ from torch.utils.data import DataLoader
 from sdr_model.dataset import DatasetsLoader, Dataset
 from sdr_model.model import SuperDuperResolution
 from sdr_model.video_operations import VideoFile
+
+# Create a logger.
+logger = logging.getLogger(__name__)
 
 
 class Trainer:
@@ -39,26 +43,32 @@ class Trainer:
         self._video_locations: list[VideoFile] = []
         self._cursor_position: int = 0
 
-    def train_and_test(self, epochs: int) -> None:
+    def train_and_test(
+            self, epochs: int, input_dims: str, output_dims: str, amount_of_data: int
+    ) -> None:
         """Trains the model for the given number of epochs.
         Args:
             epochs: number of epochs to train
         """
         for epoch_index in range(1, epochs + 1):
             # Train the model for one epoch.
-            self._train_one_epoch(epoch_index)
+            self._train_one_epoch(
+                epoch_index, input_dims, output_dims, amount_of_data=amount_of_data
+            )
+            logger.debug("Model is trained for one epoch. Epoch index: %d", epoch_index)
             self.test()
+            logger.debug("Model is tested. Epoch index: %d", epoch_index)
 
             # Save the model.
             if epoch_index % self._save_frequency == 0:
                 self.save_model(f"model_epoch_{epoch_index}.pth")
+                logger.debug("Model is saved. Epoch index: %d", epoch_index)
 
 
     def test(self) -> None:
         """Tests the model.
         """
         total_psnr = 0
-        total_dataset_size = 0
 
         # Load the datasets.
         for test_dataset in self._datasets_loader.test_datasets.values():
@@ -69,6 +79,7 @@ class Trainer:
                 batch_size=self.batch_sizes["test"],
                 shuffle=True
             )
+            logger.debug("Test data loader is created.")
 
             # Test the model.
             for batch in test_dataloader:
@@ -77,15 +88,19 @@ class Trainer:
 
                 # Forward pass.
                 prediction = self.model(inputs)
+                logger.debug("Forward pass is completed.")
 
                 # Calculate the PSNR.
                 mean_square_error = self.criterion(prediction, target)
-                peak_signal_to_noise_ratio = 10 * log10(1 / mean_square_error.data[0])
+                peak_signal_to_noise_ratio = 10 * log10(1 / mean_square_error.item())
+                logger.debug("PSNR is calculated. | PSNR: %f", peak_signal_to_noise_ratio)
 
                 # Update statistics.
                 total_psnr += peak_signal_to_noise_ratio
-                total_dataset_size += len(test_dataset)
-        print(f"===> Avg. PSNR: {(total_psnr / total_dataset_size):.4f} dB")
+
+        # @TODO: Use lazy formatting.
+        logger.info("Average PSNR: %f dB",
+                    total_psnr / len(self._datasets_loader.test_datasets.values()))
 
     def save_model(self, file_path: str) -> None:
         """Saves the model to the given file path.
@@ -109,8 +124,9 @@ class Trainer:
                 self._video_locations.append(
                     VideoFile(join(videos_dir, video_file), frame_rate)
                 )
+                logger.debug("Video is added to the trainer. Video name: %s", video_file)
 
-    def _next_dataset(self) -> Dataset:
+    def _next_dataset(self, input_dims: str, output_dims: str, amount_of_data: int) -> Dataset:
         """Gets the next dataset from the loader.
         Returns:
             dataset: Next train dataset
@@ -129,11 +145,14 @@ class Trainer:
 
         return self._datasets_loader.create(
             video=current_video,
-            input_dimensions="864x480",
-            output_dimensions="1920x1080",
+            input_dimensions=input_dims,
+            output_dimensions=output_dims,
+            dataset_amount=amount_of_data
         )
 
-    def _train_one_epoch(self, epoch_index: int) -> None:
+    def _train_one_epoch(
+            self, epoch_index: int, input_dims: str, output_dims: str, amount_of_data: int
+        ) -> None:
         """Trains the model for one epoch.
         Args:
             epoch_index: epoch index
@@ -143,7 +162,9 @@ class Trainer:
 
         while True:
             # Load the dataset.
-            train_dataset = self._next_dataset()
+            train_dataset = self._next_dataset(
+                input_dims, output_dims, amount_of_data=amount_of_data
+            )
 
             # Check if there are any more videos to load.
             if train_dataset is None:
@@ -155,6 +176,7 @@ class Trainer:
                 batch_size=self.batch_sizes["train"],
                 shuffle=True
             )
+            logger.debug("Train data loader is created.")
 
             # Train the model.
             for iteration, batch in enumerate(train_dataloader, 1):
@@ -164,18 +186,24 @@ class Trainer:
 
                 # Forward pass.
                 model_output = self.model(inputs)
+                logger.debug("Forward pass is completed.")
 
                 # Calculate the loss.
                 loss = self.criterion(model_output, targets)
+                logger.debug("Loss is calculated. Loss: %f", float(loss.data))
 
                 # Update statistics.
-                epoch_loss += loss.data[0]
+                epoch_loss += float(loss.data)
                 total_dataset_size += len(train_dataset)
 
                 # Backward pass.
                 loss.backward()
                 self.optimizer.step()
+                logger.debug("Backward pass is completed.")
 
-                print(f"===> Epoch[{epoch_index}]({iteration}/{len(train_dataset)}): " \
-                    f"Loss: {loss.data[0]:.4f}")
-            print(f"Epoch {epoch_index} completed. Loss: {epoch_loss / total_dataset_size}")
+                # @TODO: Use lazy formatting.
+                logger.info(f"===> Epoch[{epoch_index}]({iteration}/{len(train_dataset)}): " \
+                    f"Loss: {float(loss.data):.4f}")
+            
+            # @TODO: Use lazy formatting.
+            logger.info(f"Epoch {epoch_index} completed. Loss: {epoch_loss / total_dataset_size}")

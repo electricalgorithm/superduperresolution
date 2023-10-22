@@ -2,8 +2,11 @@
 This module provides the functionality of handling video operations.
 """
 import subprocess
+import logging
 from dataclasses import dataclass
 
+# Create a logger.
+logger = logging.getLogger(__name__)
 
 @dataclass
 class VideoFile:
@@ -42,7 +45,7 @@ class FFmpegOperations:
     @staticmethod
     def extract_frames_from_video(
         input_video: str, output_directory: str, frame_rate: int = 30
-    ):
+    ) -> None:
         """Extract frames from a video using ffmpeg.
         :param input_video: path to the input video
         :param output_directory: path to the output directory
@@ -57,18 +60,17 @@ class FFmpegOperations:
         )
 
         try:
+            logger.debug("Running FFmpeg command: %s", " ".join(cmd))
             subprocess.run(cmd, check=True, stderr=FFmpegOperations._log_channel)
-            print(
-                f"Frames extracted from {input_video} and saved to {output_directory}"
-            )
+            logger.debug("Frames extracted from %s and saved to %s.", input_video, output_directory)
         except subprocess.CalledProcessError as error:
-            print("Frame extraction failed.")
+            logger.error("Frame extraction failed.")
             raise error
 
     @staticmethod
     def scale_and_extract_from_video(
         input_video: str, output_directory: str, dimensions: str, frame_rate: int = 30
-    ):
+    ) -> None:
         """Extract frames from a video using ffmpeg.
         :param input_video: path to the input video
         :param output_directory: path to the output directory
@@ -95,11 +97,49 @@ class FFmpegOperations:
         )
 
         try:
+            logger.debug("Running FFmpeg command: %s", " ".join(cmd))
             subprocess.run(cmd, check=True, stderr=FFmpegOperations._log_channel)
-            print(
-                f"Scaled ({dimensions}) frames extracted from "
-                f"{input_video} and saved to {output_directory}"
+            logger.debug(
+                "Scaled (%s) frames extracted from %s and saved to %s.",
+                dimensions, input_video, output_directory
             )
         except subprocess.CalledProcessError as error:
-            print("Scaled frame extraction failed.")
+            logger.error("Scaled frame extraction failed.")
+            raise error
+
+    @staticmethod
+    def scale_images(
+        input_dir: str, output_dir: str, file_format: str,
+        dimension_to_scale: str, file_name_prefix: str = ""
+    ) -> None:
+        """Scale images in a directory using ffmpeg.
+        :param input_dir: path to the input directory
+        :param output_dir: path to the output directory
+        :param file_format: format of the frames in the directory
+        :param dimension_to_scale: dimension to scale the frames to
+        """
+        ffmpeg_dimensions = f"{dimension_to_scale.split('x')[0]}:{dimension_to_scale.split('x')[1]}"
+        input_dir = input_dir if input_dir[-1] != "/" else input_dir[:-1]
+        output_dir = output_dir if output_dir[-1] != "/" else output_dir[:-1]
+
+        # Create directories if they don't exist.
+        subprocess.run(["mkdir", "-p", output_dir], check=True)
+
+        # Scale frames in the directory.
+        cmd = FFmpegOperations.construct_command(
+            "-i",
+            f"{input_dir}/{file_name_prefix}%04d.{file_format}",
+            "-vf", f"scale={ffmpeg_dimensions}",
+            f"{output_dir}/{file_name_prefix}%04d.{file_format}",
+        )
+
+        try:
+            logger.debug("Running FFmpeg command: %s", " ".join(cmd))
+            subprocess.run(cmd, check=True, stderr=FFmpegOperations._log_channel)
+            logger.debug(
+                "Frames in %s scaled (%s) and saved to %s.",
+                input_dir, dimension_to_scale, output_dir
+            )
+        except subprocess.CalledProcessError as error:
+            logger.error("Frame scaling failed.")
             raise error
